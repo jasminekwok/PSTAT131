@@ -1,0 +1,330 @@
+---
+title: "Homework Assignment 2"
+author: "Jasmine Kwok and Alyssa Keehan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: pdf_document
+---
+```{r, cache = TRUE}
+library(knitr)
+# set global chunk options: images will be 7x5 inches
+knitr::opts_chunk$set(fig.width=7, fig.height=5)
+options(digits = 4)
+
+
+## indents are for indenting r code as formatted text
+## They may need to be adjusted depending on your OS
+# if your output looks odd, increase or decrease indent
+indent1 = '    '
+indent2 = '        '
+indent3 = '      '
+library(ISLR)
+library(tidyverse)
+library(tree)
+library(plyr)
+library(class)
+library(rpart)
+library(maptree)
+library(ROCR)
+library(reshape2)
+library(readr)
+library(tinytex)
+library(hflights)
+library(dplyr)
+library(ggplot2)
+
+```
+
+acquire the colection of spam emails
+We standardized every numerical attribute in the dataset. 
+```{r, cache = TRUE}
+spam <- read_table2("spambase.tab", guess_max=2000)
+spam_new <- spam %>%
+mutate(y = factor(y, levels=c(0,1), labels=c("good", "spam"))) %>% # label as factors
+mutate_at(.vars=vars(-y), .funs=scale) # scale others
+```
+
+Define the function below to calculate the missclassification error rate.
+Any error in this homework will imply missclassification error.
+```{r, cache = TRUE}
+calc_error_rate <- function(predicted.value, true.value){
+return(mean(true.value!=predicted.value))
+}
+```
+
+Create a matrix to keep track of all error rates
+```{r, cache = TRUE}
+set.seed(1)
+records <- matrix(NA, nrow=3, ncol=2)
+colnames(records) <- c("train.error","test.error")
+rownames(records) <- c("knn","tree","logistic")
+records
+```
+
+Training/test/sets: Split randomly the data in a train and test set
+```{r, cache = TRUE}
+set.seed(1)
+test.indices = sample(1:nrow(spam_new), 1000)
+spam.train=spam_new[-test.indices,]
+spam.test=spam_new[test.indices,]
+```
+
+Use the following code to perform a 10-fold cross validation.
+Defined the folds and the assignments for each observation in the dataset.
+```{r, cache = TRUE}
+nfold = 10
+set.seed(1)
+folds = seq.int(nrow(spam.train)) %>% ## sequential obs ids
+cut(breaks = nfold, labels=FALSE) %>% ## sequential fold ids
+sample ## random fold ids
+```
+
+#K-Nearest Neighbor Method
+1. (Selecting number of neighbors) Use 10-fold cross validation to select the best number of neighbors best.kfold out of six values of k in kvec = c(1, seq(10, 50, length.out=5)). Use the folds defined above and use the following do.chunk definition in your code. Again put set.seed(1) before your code. What value of k leads to the smallest estimated test error?
+
+```{r, cache = TRUE}
+do.chunk <- function(chunkid, folddef, Xdat, Ydat, k){
+  
+  train = (folddef!=chunkid)
+  
+  Xtr = Xdat[train,]
+  Ytr = Ydat[train]
+  
+  Xvl = Xdat[!train,]
+  Yvl = Ydat[!train]
+
+  ## get classifications for current training chunks
+  predYtr = knn(train = Xtr, test = Xtr, cl = Ytr, k = k)
+  
+  ## get classifications for current test chunk
+  predYvl = knn(train = Xtr, test = Xvl, cl = Ytr, k = k)
+  
+  data.frame(train.error = calc_error_rate(predYtr, Ytr),
+             val.error = calc_error_rate(predYvl, Yvl))
+}
+
+```
+
+```{r, cache = TRUE}
+set.seed(1)
+errors = NULL
+XTrain <- select(spam.train, -y)
+YTrain <- spam.train$y
+
+XTest <-  select(spam.test, -y)
+YTest <- spam.test$y
+
+kvec = c(1, seq(10, 50, length.out=5)) 
+for(k in kvec){
+        temp = ldply(1:nfold, do.chunk, folddef=folds, 
+                     Xdat=XTrain, Ydat=YTrain, k = k) %>%
+                summarise_all(funs(mean)) %>% 
+                mutate(neighbors = k) 
+        
+        errors = rbind(errors, temp)
+} 
+errors
+
+best.kfold = errors$neighbors[which.min(errors$val.error)]
+best.kfold
+```
+
+### 2. Training and Test Errors 
+Now that the best number of neighbors has been determined, compute the training error using spam.train and test error using spam.test or the k = best.kfold. Use the function calc_error_rate() to get the errors from the predicted class labels. Fill in the first row of records with the train and test error from the knn fit.
+```{r, indent=indent2, cache = TRUE}
+# compute training error and test error 
+set.seed(1)
+pred.Ytest = knn(train=XTrain, test=XTest, cl=YTrain, k=best.kfold)
+# error table for neighbors equal 10
+errortable.10 <- errors %>% filter(neighbors==10)
+# check if train error is the just average of train.error for all neighbors=10
+train.error = mean(errortable.10$train.error)
+test.error <- calc_error_rate(pred.Ytest, YTest)
+records[1,1] <- train.error 
+records[1,2] <- test.error
+records
+```
+
+
+### QUESTION 3 
+(Controlling Decision Tree Construction) Function tree.control specifies options for tree construction:set minsize equal to 5 (the minimum number of observations in each leaf) and mindev equal to 1e-5. See the help for tree.control for more information. The output of tree.control should be passed into tree function in the control argument. Construct a decision tree using training set spam.train, call the resulting tree spamtree. summary(spamtree) gives some basic information about the tree. How many leaf nodes are there? How many of the training observations are misclassified?
+```{r, indent=indent2, cache = TRUE}
+set.seed(1)
+spamtree <- tree(y ~ ., data = spam.train, 
+                 control = tree.control(nobs = nrow(spam.train), minsize = 5, mindev = 1e-5))
+summary(spamtree)
+```
+### QUESTION 4
+(Decision Tree Pruning) We can prune a tree using the prune.tree function. Pruning iteratively removes
+the leaves that have the least effect on the overall misclassification. Prune the tree until there are only 10 leaf
+nodes so that we can easily visualize the tree. Use draw.tree function from the maptree package to visualize
+the pruned tree. Set nodeinfo=TRUE.
+```{r, cache = TRUE}
+set.seed(1)
+# prune tree until there are only 10 leaf nodes
+draw.tree(prune.tree(spamtree, best = 10), cex=0.5, nodeinfo = TRUE, col = NULL)
+```
+### QUESTION 5 
+In this problem we will use cross validation to prune the tree. Fortunately, the tree package provides an easy to use function to do the cross validation for us with the cv.tree function. Use the same fold partitioning you used in the KNN problem (refer to cv.tree help page for detail about rand argument). Also be sure to set method=misclass. Plot the misclassification as function of tree size. Determine the optimal tree size that minimizes misclassification. Important: if there are multiple tree sizes that have the same minimum estimated misclassification, you should choose the smallest tree. This reflects the idea that we want to choose the simplest model that explains the data well (“Occam’s razor”). Show the optimal tree size best.size.cv in the plot.
+```{r, indent=indent2, cache = TRUE}
+set.seed(1)
+# K-fold cross validation 
+cv.spamtree <- cv.tree(spamtree, rand=folds ,FUN=prune.tree,method="misclass")
+cv.spamtree
+```
+```{r}
+set.seed(1)
+# plotting misclassification function of tree size 
+# "b" - for points and lines 
+plot(cv.spamtree$size, cv.spamtree$dev/length(cv.spamtree),type = "b",
+     xlab = "Tree Size", ylab = "CV Misclassification Rate")
+```
+```{r}
+set.seed(1)
+# Best size 
+best.size.cv = cv.spamtree$size[max(which(cv.spamtree$dev==min(cv.spamtree$dev)))]
+best.size.cv #22
+```
+
+### QUESTION 6 
+We previous pruned the tree to a small tree so that it could be easily visualized. Now, prune the original tree to 
+size best.size.cv and call the new tree spamtree.pruned. Calculate the training error and test error when
+spamtree.pruned is used for prediction. Use function calc_error_rate() to compute misclassification error. 
+Also, fill in the second row of the matrix records with the training error rate and test error rate.
+```{r, cache = TRUE}
+set.seed(1)
+# prune spamtree to size of best.size.cv (supposed to be 37)
+spamtree.pruned <- prune.misclass(spamtree, best=best.size.cv)
+
+# Plot pruned tree
+#plot(spamtree.pruned)
+#text(spamtree.pruned, pretty=0, col = "red", cex = 0.35)
+#title("Pruned tree of size 14")
+draw.tree(spamtree.pruned, cex =0.30, nodeinfo = TRUE, col = NULL)
+```
+```{r, cache = TRUE}
+set.seed(1)
+# predict on test set 
+pred.spamtree.pruned <- predict(spamtree.pruned, spam.test , type = "class")
+
+# training error and test error using calc_error_rate()
+train.error1 = mean(predict(spamtree.pruned, spam.train , type = "class")!=spam.train$y)
+test.error1 <- calc_error_rate(pred.spamtree.pruned, YTest)
+records[2,1] <- train.error1
+records[2,2] <- test.error1
+records
+```
+
+#Logistic Regression
+7. In a binary classification problem, let p represent the probability of class label “1”“, which implies 1−p represents probability of class label”0“. The logistic function (also called the”inverse logit“) is the cumulative distribution function of logistic distribution, which maps a real number z to the open interval (0, 1):
+          p(z) = (e^z)/(1 + e^z)
+a. Show that indeed the inverse of a logistic function is the logit function:
+                    z(p) = ln(p/(1-p))
+$$
+\begin{aligned}
+p(z) &= {\frac{e^{z}}{1+e^{z}}}\\
+let p(z) &= y\\
+y &= {\frac{e^{z}}{1+e^{z}}}\\
+z &= {\frac{e^{y}}{1+e^{y}}}\\
+z(1+e^{y}) &= e^{y}\\
+z + ze^{y} &= e^{y}\\
+z &= e^{y} - ze^{y}\\
+z &= e^{y}(1-z)\\
+{\frac{z}{1-z}} &= e^{y}\\
+ln({\frac{z}{1-z}}) &= ln(e^{y})\\
+ln({\frac{z}{1-z}}) &= y\\
+therefore\\
+z(p) &= ln({\frac{p}{1-p}})
+\end{aligned}
+$$ 
+
+b. The logit function is a commonly used link function for a generalized linear model of binary data. One reason for this is that implies interpretable coefficients. Assume that z = B0 + B1x1, and p = logistic(z). How does the odds of the outcome change if you increase x1 by two? Assume B1 is negative: what value does p approach as x1 ! 1? What value does p approach as x1 ! −1?
+$$
+\begin{aligned}\\
+logit(p(z)) = \beta_{0} + \beta_{1}x_{1} + 2\beta_{1}\\
+e^{logit(p(z)) }= e^{\beta_{0} + \beta_{1}x_{1} + 2\beta_{1}}\\
+Odds(z) = e^{\beta_{0} + \beta_{1}x_{1} + 2\beta_{1}}\\
+Odds(z) = e^{\beta_{0} + \beta_{1}x_{1}} \times e^{2\beta_{1}}\\
+\end{aligned}
+$$
+When we increase $x_{1}$ by two, this corresponds to a multiplicative change in the odds of $2e^{\beta_{1}}$. 
+Assuming $\beta_{1}$ is a negative value, as $x_{1} \rightarrow \infty$ the value of p becomes close to 0. 
+$$
+\begin{aligned}
+p(z) &= {\frac{e^{\beta_{0} + \beta_{1}x_{1}}}{1+e^{\beta_{0} + \beta_{1}x_{1}}}}\\
+since \hspace{0.2cm} \beta_{1} \hspace{0.2cm}is \hspace{0.2cm}a \hspace{0.2cm}negative \hspace{0.2cm}value, \hspace{0.2cm}
+p(z) &= {\frac{e^{\beta_{0} - \beta_{1}x_{1}}}{1+e^{\beta_{0} - \beta_{1}x_{1}}}}\\
+p(z) &= {\frac{e^{\beta_{0}}\times e^{-\beta_{1}x_{1}}}{1+e^{\beta_{0}} \times e^{-\beta_{1}x_{1}}}}\\
+when \hspace{0.2cm} x_{1} \rightarrow \infty, \hspace{0.2cm} e^{-\beta_{1}x_{1}} \approx 0 \\
+so \hspace{0.2cm} p(z) &= {\frac{e^{\beta_{0}}\times 0}{1+e^{\beta_{0}} \times 0 }}\\
+therefore \hspace{0.2cm} p(z) \approx 0
+\end{aligned}
+$$
+
+$$
+\begin{aligned}
+p(z) &= {\frac{e^{\beta_{0} + \beta_{1}x_{1}}}{1+e^{\beta_{0} + \beta_{1}x_{1}}}}\\
+since \hspace{0.2cm} \beta_{1} \hspace{0.2cm}is \hspace{0.2cm}a \hspace{0.2cm}negative \hspace{0.2cm}value, \hspace{0.2cm}
+p(z) &= {\frac{e^{\beta_{0} - \beta_{1}x_{1}}}{1+e^{\beta_{0} - \beta_{1}x_{1}}}}\\
+x_{1} \rightarrow -\infty \hspace{0.2cm} so, \hspace{0.2cm} p(z) &= {\frac{e^{\beta_{0} - (-\beta_{1}x_{1}})}{1+e^{\beta_{0} - (-\beta_{1}x_{1})}}}\\
+and \hspace{0.2cm} p(z) &= {\frac{e^{\beta_{0} +\beta_{1}x_{1}}}{1+e^{\beta_{0} + \beta_{1}x_{1}}}}\\
+p(z) &= {\frac{e^{\beta_{0}}\times e^{\beta_{1}x_{1}}}{1+e^{\beta_{0}} \times e^{\beta_{1}x_{1}}}}\\
+when \hspace{0.2cm} x_{1} \rightarrow \infty, \hspace{0.2cm} e^{\beta_{1}x_{1}} \approx 9999999...(very\hspace{0.2cm} large\hspace{0.2cm} value) \\
+so \hspace{0.2cm} p(z) &= {\frac{e^{\beta_{0}}\times 999999.....}{1+e^{\beta_{0}} \times 999999..... }}\\
+therefore \hspace{0.2cm} p(z) \approx 1
+\end{aligned}
+$$
+### QUESTION 8
+8. Use logistic regression to perform classification. Logistic regression specifically estimates the probability that an observation as a particular class label. We can define a probability threshold for assigning class labels based on the probabilities returned by the glm fit.
+
+In this problem, we will simply use the “majority rule”. If the probability is larger than 50% class as spam. Fit a logistic regression to predict spam given all other features in the dataset using the glm function. Estimate the class labels using the majority rule and calculate the training and test errors. Add the training and test errors to the third row of records. Print the full records matrix. Which method had the lowest misclassification error on the test set?
+
+```{r, cache = TRUE}
+set.seed(1)
+glm_spamtree <- glm(y~., data = spam_new, family = "binomial")
+glm_spamtree
+```
+```{r, echo = FALSE, cache = TRUE}
+set.seed(1)
+kable(summary(glm_spamtree)$coefficients, digits = 3)
+```
+```{r, echo = FALSE, cache = TRUE}
+set.seed(1)
+# fit training values
+fitted_val.train <- predict(glm_spamtree, spam.train, type = "response")
+fitted_val.train
+```
+```{r, cache = TRUE}
+set.seed(1)
+#confusion matrix
+err.glm.train <- table(Truth=spam.train$y,Prediction=ifelse(fitted_val.train>0.5,"spam", "good"))
+err.glm.train
+```
+```{r, echo = FALSE, cache = TRUE}
+set.seed(1)
+#predict on test set
+fitted_val.test <- predict(glm_spamtree, spam.test, type = "response")
+fitted_val.test
+```
+```{r, cache = TRUE}
+set.seed(1)
+#confustion matrix
+err.glm.test <- table(Truth=spam.test$y,Prediction=ifelse(fitted_val.test>0.5,"spam", "good"))
+err.glm.test
+```
+```{r, cache = TRUE}
+set.seed(1)
+#training error for glm model
+train.glm.err <- 1-sum(diag(err.glm.train))/sum(err.glm.train)
+#test error for glm model
+test.glm.err <- 1-sum(diag(err.glm.test))/sum(err.glm.test)
+
+records[3,1] <- train.glm.err
+records[3,2] <- test.glm.err
+records
+```
+
+The logistic regression method has the lowest test error of 0.068.
+
+9. In the SPAM example, take “positive” to mean “spam”. If you are the designer of a spam filter, are you more concerned about the potential for false positive rates that are too large or true positive rates that are too small? Argue your case.
+
+False positive rates in this case classifes an email that is not spam as spam while true positive rates classify a spam email correctly. We are more concerned about the potential for large false positive rates as we might miss out on important emails that are missclassified. On the other hand, if the true positive rate is too low,we will just have to read more spam emails whic does not have much of a consequence. 

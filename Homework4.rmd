@@ -1,0 +1,497 @@
+---
+title: "Homework Assignment 4"
+author: "Jasmine Kwok"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: pdf_document
+---
+```{r, cache = TRUE}
+library(knitr)
+# set global chunk options: images will be 7x5 inches
+knitr::opts_chunk$set(fig.width=7, fig.height=5)
+options(digits = 4)
+
+## indents are for indenting r code as formatted text
+## They may need to be adjusted depending on your OS
+# if your output looks odd, increase or decrease indent
+indent1 = '    '
+indent2 = '        '
+indent3 = '      '
+library(tidyverse)
+library(tree)
+library(randomForest)
+library(gbm)
+library(ROCR)
+library(e1071)
+library(imager)
+```
+
+## 1. Fundamentals of the bootstrap 
+a) Given a sample of size n, what is the probability that any observation j is not in a bootstrap sample? Express your answer as a function of n. 
+The probability of selecting $x_{j}$ is $\frac{1}{n}$, then the probability of $x_{j}$ not in a bootstrap sample is $1-\frac{1}{n}$. FSo for any j-th observation is not in the bootstrap sample is $(1-\frac{1}{n})^{n}$
+
+b) Compute the above probability for n=1000. 
+```{r, cache = TRUE}
+(1-1/1000)**1000
+```
+0.3676954
+
+c) print the number of missing observations 
+```{r, cache = TRUE, warning=FALSE}
+set.seed(10)
+rand <- sample(1:1000, replace=TRUE)
+num_uniq <- length(unique(rand))
+num_uniq
+non_uniq <- length(rand)-length(unique(rand))
+non_uniq # missing observations 
+```
+
+d) By November 19, 2015, Stephen Curry, an NBA basketball player regarded as one of the best players currently
+in the game, had made 62 out of 126 three point shot attempts (49.2%). His three point field goal percentage of
+0.492, if he maintains it, will be one of the best all time for a single season. Use bootstrap resampling on a
+sequence of 62 1’s (makes) and 64 0’s (misses). For each bootstrap sample compute and save the sample mean
+(e.g. bootstrap FG% for the player). Use 1000 bootstrap samples to plot a histogram of those values. 
+
+Compute the 95% bootstrap confidence interval for Stephen Curry’s “true” end-of-season FG% using the quantile
+function in R. Print the endpoints of this interval. However, this estimate, and the associated uncertainty,
+exclude information about his career performance as well as the typical shooting skill for other players in the
+league. For reference, prior to this year, Stephen Curry had made about 43% of all three point shots in his
+career. Despite the fact that the bootstrap histogram shows that it is about equally likely that Curry’s true
+skill is greater or elss than 0.492, why do you expect that his end-of-season field goal percentage will in fact be
+lower than his percentage on 11/19? Hint: look up the phenomenon known as “regression to the mean”.
+```{r, cache = TRUE}
+B<-1000
+# creating a list of 62 1s and 64 0s (normally distributed)
+shootseq <- rbinom(126,1, p=0.492)
+phat <- mean(shootseq)
+sd_hat <- sqrt(phat*(1-phat)/126)
+c(phat,sd_hat)
+
+# finding mean of each sample 
+bootstrap_estimates <- sapply(1:1000,function(i)mean(sample(shootseq,replace=TRUE)))
+head(bootstrap_estimates)
+
+# another method 
+# store <- vector()
+#for(i in 1:1000){
+  #store[i] <- mean(sample(shootseq,replace=TRUE))
+#}
+
+# create a histogram 
+#hist(store, freq=FALSE, breaks = 20, main="Boostrap estimates of phat")
+hist(bootstrap_estimates, freq=FALSE, breaks = 20, main="Boostrap estimates of phat")
+curve(dnorm(x,phat,sd_hat), add = TRUE, col="red", lwd=3)
+
+# compute 95% confidence interval
+quantile(bootstrap_estimates,c(0.025,0.975))
+```
+We expect that Curry's his end-of-season field goal percentage to be lower than the percentage of 0.492 on 11/19 due to the regression to the mean. Regression to the mean suggests a phenomenon in which a future point which is his end-of-season field goal percentage will be closer to the mean which is 0.48413 in this case rather than towards an extreme variable. 
+
+### 2. Eigenfaces
+```{r, cache = TRUE, warning=FALSE}
+load("faces_array.RData")
+face_mat <- sapply(1:1000, function(i) as.numeric(faces_array[, , i])) %>% t
+plot_face <- function(image_vector) {
+plot(as.cimg(t(matrix(image_vector, ncol=100))), axes=FALSE, asp=1)
+}
+```
+
+a) Find the “average” face in this dataset by averaging all of the columns in face_mat. Plot the average face by
+calling plot_face on the average.
+```{r, cache = TRUE, warning=FALSE}
+# averaging all columns in face_mat to find average face 
+ave_face <- colMeans(face_mat)
+
+# plotting the average face 
+plot_face(ave_face)
+```
+
+b) Run PCA on face_mat setting center=TRUE and scale=FALSE. In class we mentioned that in general it is best
+if scale=TRUE because it puts all variables on the same scale and we don’t have to worry about the units of the
+variables (remember, the scale of the variables affects our results). In general, this is good practice, especially
+when the predictor variables are of mixed types. Here, each variable represents a single pixel intensity (in black
+& white) and so all variables already have the same units and same scale (minimum of 0 and maximum of 255).
+In this case, setting scale=FALSE actually seems to give slightly better results. Plot the PVE and cumulative
+PVE from the PCA. How many PCs do you need to explain at least 50% of the total variation in the face
+images?
+```{r, cache = TRUE, warning=FALSE}
+facemat_pca <- prcomp(face_mat, scale =FALSE, center = TRUE)
+sdev <- facemat_pca$sdev
+pve <- sdev^2/sum(sdev^2)
+cumulative_pve <- cumsum(pve)
+
+## This will put the next two plots side by side
+par(mfrow=c(1, 2))
+
+## Plot proportion of variance explained
+plot(pve, type="l", lwd=3, xlab="Principal Component",
+     ylab="PVE")
+plot(cumulative_pve, type="l", lwd=3, xlab="Principal Component", ylab="Cumulative PVE", ylim=c(0,1))
+
+# the number of PCs needed to explain at least 50% of total variation in the images 
+min(which(cumulative_pve>=0.5))
+```
+
+c) Plot the first 16 principle component directions as faces using the plot_face function (these are the columns
+of the rotation matrix). Early researchers termed these “eigenfaces” since they are eigenvectors of the
+matrix of faces. The code below will adjust the margins of you plot and specifies a layout for the 16 images.
+par(mfrow=c(4,4)) specifies a grid of 4 x 4 images. Each time you call plot_face it will plot the next face in
+one of the new grid cells. All you need to do is call plot_face 16 times (please use a for loop). Note that these
+images describe “directions” of maximum variability in the face images. You should interpret light and dark
+regions in the eigenfaces as regions of high contrast, e.g. your interpretation should not change if you inverted
+black and white in the images.
+```{r, cache = TRUE, warning=FALSE}
+# plot the first 16 PCs using plot_face function 
+for (i in 1:16){
+  plot_face(facemat_pca$rotation[,i])
+}
+par(mfrow=c(4,4))
+```
+
+d) In this part, we will examine faces that have the highest and lowest values for specific PCs. Plot the faces
+with the 5 largest values on PC1 and the 5 smallest values for PC1. Based on the example faces, and the first
+eigenface from the previous part and the 10 example images, what aspect of variability in the face images is
+captured by the first component.
+```{r, cache = TRUE, warning=FALSE}
+# plot the faces with 5 largest values on PC1
+largest_pc1 <- order(facemat_pca$x[, 1], decreasing = TRUE)[1:5]
+largest_pc1
+for (i in largest_pc1){
+  plot_face(face_mat[i,])
+}
+
+# plot the faces with 5 smallest values on PC1
+smallest_pc1 <- order(facemat_pca$x[, 1])[1:5]
+smallest_pc1
+for (i in smallest_pc1){
+  plot_face(face_mat[i,])
+}
+```
+Based on the example faces and the first eigenface from the previous part and the 10 example images, the first component captures the  variability between lightness and darkness in the face images which differentiates the individual and the background. The largest values in PC1 has a light background and darker individual while the smallest values of PC1 has a dark background and lighter individual. 
+
+e) Repeat part d) but now display example faces with the largest and smallest values on principal component 5.
+Again, discuss what aspect of variability in the face images is best captured by this principal component. Based
+on your results, which principal component, (1 or 5) would be more useful as a feature in a face recognition
+model (e.g. a model which predicts the identity of the individual in an image)
+```{r, cache = TRUE, warning=FALSE}
+# plot the faces with 5 largest values on PC5
+largest_pc5 <- order(facemat_pca$x[, 5], decreasing = TRUE)[1:5]
+largest_pc5
+for (i in largest_pc5){
+  plot_face(face_mat[i,])
+}
+
+# plot the faces with 5 smallest values on PC5
+smallest_pc5 <- order(facemat_pca$x[, 5])[1:5]
+smallest_pc5
+for (i in smallest_pc5){
+  plot_face(face_mat[i,])
+}
+```
+The variability in hair length is captured in this principal component. Faces with largest PC5 have long hair while faces with the smallest PC5 have short hair. Based on these results, I think PC5 would be more useful in facial recognition as it identifies a specific feature, the hair, which is an indicator of identity for the individual in the image. 
+
+### 3. Logistic regression with polynomial features 
+a) In class, we have used polynomial linear regression several times as an example for model complexity and the
+bias variance tradeoff. We can also introduce polynomial logistic regression models to derive more sophisticated
+classification functions by introducing additional features. Use read_csv to load nonlinear.csv and plot the
+data. Plot each point colored according to its class, Y.
+```{r, cache = TRUE, warning=FALSE}
+# reading in data
+nonlinear_data <- read_csv("nonlinear.csv")
+head(nonlinear_data) 
+
+# plotting the non linear data according to class Y 
+plot(nonlinear_data$X1, nonlinear_data$X2, col=ifelse(nonlinear_data$Y == 0, "red", "blue"),
+     main="Plot nonlinear data according to class", xlab="X1", ylab = "X2") 
+legend("topright",title = "Y", legend=c("0", "1"),
+       col=c("red", "blue"), lty=1:2, cex=0.8)
+```
+
+b) Fit a logistic regression model of Y on X1 and X2. The decision boundary can be visualized by making predictions
+of class labels over finely sampled grid points that cover your region (sample space) of interest. 
+For each point in gr, predict a class label using the logistic regression model. You should classify based on
+the probability being greater or less than 1/2. Visualize your predictions at each point on the grid using the
+geom_raster function. This function colors in rectangles on the defined grid and is a good way to visualize
+your decision boundary. Set the fill aesthetic to your predicted label and outside of the aes use alpha=0.5 to
+set the transparency of your predictions. Plot the observed data, colored by label, over the predictions using
+geom_point.
+
+```{r, cache = TRUE, warning=FALSE}
+#fit logistic regression model of Y on X1 and X2
+fit_X1X2 <- glm(Y~X1+X2,data = nonlinear_data, family = binomial)
+
+# grid of points over sample space
+gr <- expand.grid(X1=seq(-5, 5, by=0.1), # sample points in X1
+                  X2=seq(-5, 5, by=0.1)) # sample points in X2
+
+# predict class label for each point 
+pred.gr <- predict(fit_X1X2, gr, type = "response" )
+newpred.gr <- as.factor(ifelse(pred.gr>=0.5,1, 0))
+gr <- gr %>% add_column(pred.gr=newpred.gr)
+# create a geom_raster plot 
+ggplot(gr, aes(X1, X2)) + geom_raster(aes(fill = pred.gr)) + geom_point(data = 
+       nonlinear_data,aes(col=Y, size=0.00015)) + geom_point(data = nonlinear_data, colour="yellow")
+
+```
+
+c) Fit a model involving 2nd degree polynomial of X1 and X2 with interaction terms. You should use the poly()
+function. Inspect result of the fit using summary(). Plot the resulting decision boundary.
+```{r, cache = TRUE, warning=FALSE}
+#fit a model of 2nd degree polynomial of X1 and X2 with interaction terms
+fit_2poly<- glm(Y~poly(X1, 2)*poly(X2,2),data = nonlinear_data, family = binomial)
+summary(fit_2poly)
+
+# plot resulting decision boundary 
+# prediction values 
+pred.poly2 <- predict(fit_2poly, gr, type = "response" )
+newpred.poly2 <- as.factor(ifelse(pred.poly2<=0.5,0,1))
+
+# create a geom_raster plot 
+ggplot(gr, aes(X1, X2)) + geom_raster(aes(fill = newpred.poly2)) + geom_point(data = 
+       nonlinear_data,aes(col=Y, size=0.00015))+geom_point(data = nonlinear_data, colour="yellow")
+```
+
+d) Using the same procedure, fit a logistic regression model with 5-th degree polynomials without any interaction
+terms. Inspect result of the fit using summary(). Plot the resulting decision boundary and discuss the result.
+Explain the reason for any strange behvaior.
+```{r, cache = TRUE, warning=FALSE}
+# fit 5th degree polynomial with no interaction terms 
+fit_5poly<- glm(Y~poly(X1, 5)+poly(X2,5),data = nonlinear_data, family = binomial)
+summary(fit_5poly)
+
+# plot resulting decision boundary 
+# prediction values 
+pred.poly5 <- predict(fit_5poly, gr, type = "response" )
+newpred.poly5 <- as.factor(ifelse(pred.poly5<=0.5,0,1))
+
+# create a geom_raster plot 
+ggplot(gr, aes(X1, X2)) + geom_raster(aes(fill = newpred.poly5)) + geom_point(data = 
+       nonlinear_data,aes(col=Y, size=0.00015)) +  geom_point(data = nonlinear_data, colour="yellow")
+
+```
+In this graph, there is a pink region on the top without any blue points which may suggest overfitting. I think the logistic regression model with 2nd degree polynomial and interaction terms may be a better model than the logistic regression model with 5th degree polynomial. 
+
+e) Qualitatively, compare the relative magnitudes of coefficients of in the two polynomial models and the linear
+model. What do you notice? Your answer should mention bias, variance and/or overfitting.
+The magnitudes of coefficients of the two polynomial models such as 14.4, -51.1, and 103.4 are much larger compared to the coefficients of the linear model such as 1.022, -0.289, and 0.232. The magnitude of coeffients of the 2nd degree polynomial is larger than the 5th degree polynomial. The polynomial models and non-linear and would have a higher variance and lower bias as they are more complex in comparison to the linear model which is more simple and has smaller bias and larger variance. The use of 5th degree polynomial model may be overfitting as the model is overly complex and has a strange behavior shown in the previous plot. 
+
+f) (231 required, 131 extra credit) Create 3 bootstrap replicates of the original dataset. Fit the linear model
+and the 5th order polynomial to each of the bootstrap replicates. Plot class predictions on the grid of values
+for each of both linear and 5th order fits, from each of the bootstrap samples. There should be six plots total.
+Discuss what you see in the context of your answer to the previous question.
+```{r, cache = TRUE, warning=FALSE}
+set.seed(1)
+# create 3 bootstrap replicates of original dataset 
+bootstrap.data1 <- nonlinear_data[c(sample(nrow(nonlinear_data),replace=TRUE)),]
+bootstrap.data2 <- nonlinear_data[c(sample(nrow(nonlinear_data),replace=TRUE)),]
+bootstrap.data3 <- nonlinear_data[c(sample(nrow(nonlinear_data),replace=TRUE)),]
+
+# fit linear model to each boostrap replicate 
+fit_X1X2.boot1 <- glm(Y~X1+X2,data = bootstrap.data1, family = binomial)
+fit_X1X2.boot2 <- glm(Y~X1+X2,data = bootstrap.data2, family = binomial)
+fit_X1X2.boot3 <- glm(Y~X1+X2,data = bootstrap.data3, family = binomial)
+
+# summary of linear models
+summary(fit_X1X2.boot1)
+summary(fit_X1X2.boot2)
+summary(fit_X1X2.boot3)
+
+# fit 5th degree polynomial model to each boostrap replicate
+fit_5poly.boot1<- glm(Y~poly(X1, 5)+poly(X2,5),data = bootstrap.data1, family = binomial)
+fit_5poly.boot2<- glm(Y~poly(X1, 5)+poly(X2,5),data = bootstrap.data2, family = binomial)
+fit_5poly.boot3<- glm(Y~poly(X1, 5)+poly(X2,5),data = bootstrap.data3, family = binomial)
+
+# summary of polynomial models
+summary(fit_5poly.boot1)
+summary(fit_5poly.boot2)
+summary(fit_5poly.boot3)
+
+# predictions for linear model 
+# linear model bootstrap 1 predictions 
+pred.X1X2.boot1 <- predict(fit_X1X2.boot1, gr, type = "response")
+pred.X1X2.boot1 <- as.factor(ifelse(pred.X1X2.boot1<=0.5,0,1))
+# linear model bootstrap 2 predictions 
+pred.X1X2.boot2 <- predict(fit_X1X2.boot2, gr, type = "response")
+pred.X1X2.boot2<- as.factor(ifelse(pred.X1X2.boot2<=0.5,0,1))
+# linear model bootstrap 3 predictions 
+pred.X1X2.boot3 <- predict(fit_X1X2.boot3, gr, type = "response")
+pred.X1X2.boot3<- as.factor(ifelse(pred.X1X2.boot3<=0.5,0,1))
+
+# create plots
+# linear model bootstrap 1
+ggplot(gr, aes(X1, X2)) + geom_raster(aes(fill = pred.X1X2.boot1 ))+ geom_point(
+  data = bootstrap.data1,aes(col=Y, size=0.00015)) +  geom_point(data = bootstrap.data1, colour="yellow")
+# linear model bootstrap 2
+ggplot(gr, aes(X1, X2)) + geom_raster(aes(fill = pred.X1X2.boot2 )) + geom_point(
+  data = bootstrap.data2,aes(col=Y, size=0.00015)) +  geom_point(data = bootstrap.data2, colour="yellow")
+# linear model bootstrap 3
+ggplot(gr, aes(X1, X2)) + geom_raster(aes(fill = pred.X1X2.boot3 )) + geom_point(
+  data = bootstrap.data3,aes(col=Y, size=0.00015)) +geom_point(data = bootstrap.data3, colour="yellow")
+
+# predictions for 5th degree polynomial model
+# 5 degree polynomial model predictions bootstrap 1 
+pred.poly5.boot1 <- predict(fit_5poly.boot1, gr, type = "response")
+pred.poly5.boot1<- as.factor(ifelse(pred.poly5.boot1<=0.5,0,1))
+# 5 degree polynomial model predictions bootstrap 2 
+pred.poly5.boot2 <- predict(fit_5poly.boot2, gr, type = "response")
+pred.poly5.boot2<- as.factor(ifelse(pred.poly5.boot2<=0.5,0,1))
+# 5 degree polynomial model predictions bootstrap 3 
+pred.poly5.boot3 <- predict(fit_5poly.boot3, gr, type = "response")
+pred.poly5.boot3<- as.factor(ifelse(pred.poly5.boot3<=0.5,0,1))
+
+# create plots
+# polynomial model bootstrap 1
+ggplot(gr, aes(X1, X2)) + geom_raster(aes(fill = pred.poly5.boot1 )) + geom_point(
+  data = bootstrap.data1,aes(col=Y, size=0.00015))+  geom_point(data = bootstrap.data1, colour="yellow")
+# polynomial model bootstrap 2
+ggplot(gr, aes(X1, X2)) + geom_raster(aes(fill = pred.poly5.boot2 )) + geom_point(
+  data = bootstrap.data2,aes(col=Y, size=0.00015))+  geom_point(data = bootstrap.data2, colour="yellow")
+# polynomial model bootstrap 3
+ggplot(gr, aes(X1, X2)) + geom_raster(aes(fill = pred.poly5.boot3 )) + geom_point(
+  data = bootstrap.data3,aes(col=Y, size=0.00015))+geom_point(data = bootstrap.data3, colour="yellow")
+```
+From the summary tables, magnitude of coefficients for the polynomial models are much larger than the linear models. The model with the largest coefficient values (1.63e+15,-5.18e+15 and more) is the 5th degree polynomial model with bootstrap data 3 while the most inflexible model with the smallest coefficient values (0.89125,-0.00773, and 0.21023) is the linear model with bootstrap data 1. The graphs above show that the polynomial model is better at classifying the dataset in comparison to the linear model. The polynomial model is nonlinear as shown from the graph while the boundaries for linear model are a line. With the bootstrap replicates, we can see that the polynomial models overfit and classifies regions with no points which is a strange behavior. The linear model is much simpler, however, it was much worse at classifying the points for such as shown in graph 1 to 3. With the simpler model, the linear models have a higher bias and lower variance. The polynomial models on the other hand have higher variance and lower bias due to their flexibility. 
+
+### 4. Predicting insurance policy purchase 
+This question involves the use of the “Caravan” data set, which contains 5822 real customer records. Each record
+consists of 86 variables, containing sociodemographic data (variables 1-43) and product ownership (variables 44-86),
+grouped by zip code. In this problem we will focus on predicted the variable “Purchase” which indicates whether
+the customer purchased a caravan insurance policy. For more information see http://www.liacs.nl/~putten/library/
+cc2000/data.html.
+
+a) When you load the “ISLR” library, the variable Caravan is automatically loaded into your environment. Split
+Carvan into a training set consisting of the first 1000 observations and a test set consisting of the remaining
+observations.
+```{r, cache = TRUE, warning=FALSE}
+library(ISLR)
+#head(Caravan)
+
+# create a training set - first 1000 and test set  - remaining observations 
+train_caravan <- Caravan[1:1000,]
+test_caravan <- Caravan[-(1:1000),]
+```
+
+b) Fit a boosting model to the training set with Purchase as the response and the other variables as predictors.
+Use the gbm to fit a 1,000 tree boosted model and set the shrinkage value of 0.01. Which predictors appear to
+be the most important (Hint: use the summary function)?
+```{r, cache = TRUE, warning=FALSE}
+set.seed(1)
+boost.caravan = gbm(ifelse(Purchase=="Yes",1,0)~., data=train_caravan,
+                    distribution="bernoulli", n.trees=1000, shrinkage = 0.01)
+summary(boost.caravan)
+```
+We can see that PPERSAUT, MKOOPKLA, MOPLHOOG, MBERMIDD,and PRBRAND are the most important predictors from the summary table. 
+
+c) Now fit a random forest model to the same training set from the previous problem. Set importance=TRUE but
+use the default parameter values for all other inputs to the randomForest function. Print the random forest
+object returned by the random forest function. What is the out-of-bag estimate of error? How many variables
+were subsampled at each split in the trees? How many trees were used to fit the data? Look at the variable
+importance. Is the order of important variables similar for both boosting and random forest models?
+```{r, cache = TRUE, warning=FALSE}
+rf.caravan = randomForest(Purchase ~ ., data=train_caravan, importance=TRUE)
+rf.caravan
+
+# finding important variables 
+head(importance(rf.caravan))
+varImpPlot(rf.caravan, sort=T, main="Variable Importance for rf.caravan", n.var=5)
+```
+The out-of-bag estimate of error rate is 6.2%. The variables sampled at each split was 9 and a total of 500 trees were used to fit the data. The order of important variables were similar for boosting model ordered by gini index and random forest models and different for boosting model ordered by model accuracy. The top 5 important predictors in the random forest model by Gini Index are MOSTYPE, MGODGE, PPERSAUT, MOPLHOOG, and PBRAND and by Model Accuracy, the predictors are MRELOV, APLEZIER, MBERMIDD, MOPLMIDD, and MINK7512. 
+
+d) Use both models to predict the response on the test data. Predict that a person will make a purchase if the
+estimated probability of purchase is greater than 20 %. Print the confusion matrix for both the boosting and
+random forest models. In the random forest model, what fraction of the people predicted to make a purchase do
+in fact make one? Note: use the predict function with type="prob" for random forests and type="resonpse"
+for the boosting algorithm.
+```{r, cache = TRUE, warning=FALSE}
+set.seed(1)
+# predict using boosting model 
+yhat.boost <- predict(boost.caravan, newdata = test_caravan, type = "response")
+
+# predict using random forest model 
+yhat.rf <- predict(rf.caravan, newdata = test_caravan, type = "prob")
+
+# confusion matrix for boosting model 
+confmatrix.boost <- table(Truth=test_caravan$Purchase,Prediction=ifelse(yhat.boost>0.2,"Yes", "No"))
+confmatrix.boost
+
+# confusion matrix for random forest model 
+confmatrix.rf <- table(Truth=test_caravan$Purchase, Prediction=ifelse(yhat.rf[,2]>0.2,"Yes" ,"No"))
+confmatrix.rf
+
+# fraction of people predicted to make purchase and do infact make one (rf model)
+sum(confmatrix.rf[2,2])/sum(confmatrix.rf[c(1:2),2])
+
+```
+
+### 5. An SVMs prediction of drug use
+In this problem we return to an analysis of the drug use dataset. Load the drug use data using read_csv:
+```{r, cache = TRUE, warning=FALSE}
+drug_use <- read_csv('drug.csv', col_names =
+                       c('ID','Age','Gender','Education','Country','Ethnicity',
+                         'Nscore','Escore','Oscore','Ascore','Cscore','Impulsive',
+                         'SS','Alcohol','Amphet','Amyl','Benzos','Caff','Cannabis',
+                         'Choc','Coke','Crack','Ecstasy','Heroin','Ketamine','Legalh','LSD',
+                         'Meth', 'Mushrooms', 'Nicotine', 'Semer','VSA'))
+
+head(drug_use)
+```
+
+a) Split the data into training and test data. Use a random sample of 1500 observations for the training data and
+the rest as test data. Use a support vector machine to predict recent_cannabis_use using only the subset of
+predictors between Age and SS variables as on homework 3. Unlike homework 3, do not bother mutating the
+features into factors. Use a “radial” kernel and a cost of 1. Generate and print the confusion matrix of the
+predictions against the test data.
+```{r, cache = TRUE, warning=FALSE}
+# define the column recent cannabis use
+drug_use <- drug_use %>% mutate(recent_cannabis_use =
+                                  factor(ifelse(Cannabis >= "CL3", "Yes", "No"), 
+                                         levels=c("No", "Yes")))
+
+# subset of predictors between Age and SS variables
+drug_use_subset <- drug_use %>% select(Age:SS,recent_cannabis_use)
+
+# randomly sample to split data into training set (1500) and test set 
+set.seed(1)
+train.indices = sample(1:nrow(drug_use_subset), 1500)
+drug_use.train <- drug_use_subset[train.indices,]
+drug_use.test <- drug_use_subset[-train.indices,]
+
+# cost=1
+svmfit=svm(recent_cannabis_use~.,data=drug_use.train, kernel="radial", cost=1)
+summary(svmfit)
+
+# predict on test set 
+svmfit.test <- predict(svmfit, drug_use.test, type = "response")
+
+#confusion matrix
+confmatrix.svm <- table(Truth=drug_use.test$recent_cannabis_use,Prediction=svmfit.test)
+confmatrix.svm
+```
+
+b) Use the tune function to perform cross validation over the set of cost parameters: cost=c(0.001, 0.01, 0.1,
+1,10,100). What is the optimal cost and corresponding cross validated training error for this model? Print the
+confusion matrix for the best model. The best model can be found in the best.model variable returned by
+tune.
+```{r, cache = TRUE, warning=FALSE}
+# perform cross validation over a set of cost parameters cost=c(0.001, 0.01, 0.1,1,10,100)
+tune.out=tune(svm,recent_cannabis_use~., data=drug_use.train, 
+              kernel="radial",ranges=list(cost=c(0.001, 0.01, 0.1,
+1,10,100)))
+summary(tune.out)
+
+# optimal cost 
+summary(tune.out)$"best.parameters" # 0.1 - optimal cost 
+
+# the best model 
+summary(tune.out)$"best.model"
+
+# confusion matrix 
+conf.tune <- table(true=drug_use.test$recent_cannabis_use, 
+                   pred=predict(tune.out$best.model,newdata=drug_use.test))
+conf.tune
+
+# training error
+train.err <- 1-sum(diag(conf.tune))/sum(conf.tune)
+train.err #0.176
+
+#test or train error 
+```

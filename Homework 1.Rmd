@@ -1,0 +1,307 @@
+---
+title: "Homework Assignment"
+author: "Jasmine Kwok and Amber Baez"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: pdf_document
+---
+
+```{r setup, echo=FALSE}
+library(knitr)
+library(dplyr)
+library(tidyverse)
+library(stats)
+library(ggplot2)
+library(plyr)
+library(ISLR)
+library(reshape2)
+# set global chunk options: images will be 7x5 inches
+knitr::opts_chunk$set(fig.width=7, fig.height=5)
+options(digits = 4)
+
+## indents are for indenting r code as formatted text
+## They may need to be adjusted depending on your OS
+# if your output looks odd, increase or decrease indent
+indent1 = '    '
+indent2 = '        '
+indent3 = '            '
+
+#read a txt file 
+algae <- read_table2("algaeBloom.txt", col_names=
+                       c('season','size', 'speed', 'mxPH','mn02','Cl','NO3','NH4',
+                         'oP04','PO4','Chla','a1','a2','a3','a4','a5','a6','a7'),
+                     na="XXXXXXX")
+glimpse(algae)
+```
+
+### 1. QUESTION 1: Descriptive summary statistics:
+```{r, indent=indent2}
+# Exploratory analysis 
+summary(algae)
+```
+   
+  a) count the number of observations in each season using summarise    
+```{r, indent=indent2}
+algae %>% group_by(season) %>% dplyr::summarise(season_n = n())
+```
+
+  b) Missing values? Calculate the mean and variance of each chemical.     
+```{r, indent=indent2, echo=TRUE, tidy=TRUE}
+sum(is.na(algae))
+mean.var <- na.exclude(algae) %>% summarise_each(funs(mean,var),mn02,Cl,NO3,NH4,
+                         oP04,PO4,Chla)
+chemical <- c("Type", "mn02","Cl","NO3","NH4","oP04","PO4","Chla")
+rowname <- c("mean","variance")
+
+mean2 <- cbind("mean:",mean.var$mn02_mean, mean.var$Cl_mean, mean.var$NO3_mean, mean.var$NH4_mean, mean.var$oP04_mean, mean.var$PO4_mean, mean.var$Chla_mean)
+var2 <- cbind("variance:",mean.var$mn02_var, mean.var$Cl_var, mean.var$NO3_var, mean.var$NH4_var, mean.var$oP04_var, mean.var$PO4_var, mean.var$Chla_var)
+table <- rbind(chemical,mean2,var2)
+table
+```
+Yes, there are 33 missing values in the algae dataset. The mean and variance values for mn02, NO3,and Chla are much smaller than those of Cl, NH4, oPO4, and PO4. 
+
+  c) finding MAD and median 
+```{r, indent=indent2}
+median.mad <- na.exclude(algae) %>% summarise_each(funs(median, mad),mn02,Cl,NO3,NH4,oP04,PO4,Chla) 
+
+chemical2 <- c("Type", "mn02","Cl","NO3","NH4","oP04","PO4","Chla")
+rowname <- c("median","mad")
+
+med <- cbind("Median:",median.mad$mn02_median, median.mad$Cl_median, median.mad$NO3_median, median.mad$NH4_median, median.mad$oP04_median, median.mad$PO4_median, median.mad$Chla_median)
+mad <- cbind("Mad",median.mad$mn02_mad, median.mad$Cl_mad, median.mad$NO3_mad, median.mad$NH4_mad, median.mad$oP04_mad, median.mad$PO4_mad, median.mad$Chla_mad)
+
+table1 <- rbind(chemical2,med,mad)
+table1
+```
+The mean values for the chemicals are close to median values and larger than the median values. The median and MAD values have a much smaller range in comparison to the mean and variance values. The variance values are the largest amongst the 4 groups of values. We noticed that the quantities for mean and variance are larger than the quantities in median and MAD. 
+
+### QUESTION 2: Data visualization 
+
+  a) a histogram of mxPH with the title 'Histogram of mxPH' based on algae data set 
+```{r, indent=indent2}
+# preparing the data; create a dataframe with season and mxPH
+mxPH.df <-data.frame(na.exclude(algae))
+total<- count(mxPH.df) #199
+ggplot(mxPH.df, aes(x=mxPH)) + geom_histogram(binwidth = 0.08,aes(y = ..density..)) + labs(title = "Histogram of mxPH", x= "mxPh", y= "Probability") 
+```
+The distribution of the histogram seems to be slightly left skewed. 
+
+  b) add a density curve using geom_density and rug plots using geom_rug  
+```{r, indent=indent2}
+ggplot(mxPH.df, aes(x=mxPH)) + geom_histogram(binwidth = 0.08,aes(y = ..density..)) + labs(title = "Histogram of mxPH", x= "mxPh", y= "Probability") + geom_density() + geom_rug()
+```
+ 
+  c) boxplot with title 'A conditioned Boxplot of Algal a1' for a1 grouped by size 
+```{r, indent=indent2}
+ggplot(mxPH.df, aes(x=a1, y=size)) + geom_boxplot() + labs(title = "A conditional Boxplot of Algal a1", x= "a1")
+```
+
+  d) Are there any outliers for NO3 and NH4? How many observtions would you consider as outliers? 
+```{r, indent=indent2}
+# finding out outliers for NO3
+boxplot.stats(mxPH.df$NO3)$out
+
+# finding out outliers for NH4 
+boxplot.stats(mxPH.df$NH4)$out
+```
+For NO3, there are 4 observations that I would consider outliers based on the boxplot stats function. For NH4, there are a total of 27 observations that are considered outliers according to the function. We arrived at this using the boxplot stats to find points that do not fit in whiskers of the boxplot. 
+
+e) Compare mean & variance vs median & MAD for NO3 and NH4. What do you notice? Can you conclude which sets of measures is more robust when outliers are present? 
+```{r, indent=indent2}
+na.exclude(algae) %>% summarise_each(funs(mean, var, median, mad),NO3,NH4) 
+```
+The mean and variance are affected more by outliers in comparison to median and MAD. The median and MAD values are very similar to one another but the mean and variance may be heavily affected if the outlier is extremely larger or extremely small value. Hence, we can conclude that the median and MAD set of measure is more robust when outliers are present. 
+
+### QUESTION 3: Dealing with missing values
+
+  a) How many observations contain missing values? How many missing values are there in each
+variable?
+```{r}
+# summing the total number of missing values in algae dataset 
+sum(is.na(algae))
+
+# summing the missing values by column 
+colSums(is.na(algae))
+```
+33 observations contain missing values. There is 1 missing value in mxPH column, 2 missing values in the columns mn02, NO3, NH4, oP04, and PO4, 10 missing values in Cl column, and 12 missing values in Chla column. 
+
+  b) Removing observations with missing values: use filter() function in dplyr package to
+observations with any missing value, and save the resulting dataset (without missing values) as
+algae.del. Report how many observations are in algae.del.
+```{r}
+# removing observations with missing values by filtering though the whole dataset algae 
+algae.del <- algae %>% filter(complete.cases(.))
+nrow(algae) # original number of row - 200
+nrow(algae.del) # after filter, the new dataset has 184 rows 
+```
+
+  c) Imputing unknowns with measures of central tendency
+```{r, indent=indent2}
+# save imputed dataset as algae.med; impute the NAs with median data 
+algae.med <- algae %>% mutate_at(vars(c('mxPH','mn02','Cl','NO3','NH4','oP04','PO4','Chla')),funs(ifelse(is.na(.),median(.,na.rm=TRUE),.)))
+algae.med[c(48,62,199),]
+```
+
+  d) Imputing unknowns using correlations 
+```{r, indent=indent2}
+# selecting all the columns with chemicals 
+chemicals <- na.exclude(algae) %>% select('mn02','Cl','NO3','NH4','oP04','PO4','Chla')
+
+# compute pairwise correlation between continuous chemical variables 
+cor(chemicals) # pariwise correlation values 
+
+# fill in missing value for PO4 based on oPO4 in the 28th observation. 
+lm.PO4 <- lm(data=chemicals, PO4 ~ oP04)
+# predict using the value of oPO4 in the 28th observation 
+oP04val <- algae[28,9] # 4 
+pred.PO4 <- predict(lm.PO4, oP04val) # 48.07 
+# fill in missing values for PO4
+algae.cor <- algae %>% mutate_at(vars(c('PO4')),funs(ifelse(is.na(.),pred.PO4,.)))
+algae.cor[28,]$oP04
+```
+
+  e) Questioning missing data assumptions 
+Questioning missing data assumptions Imputation using only the observed data might lead to incorrect
+conclusions when there is survivorship bias present in the data. It could be possible that water samples were
+collected from a certain area where the levels of chemicals are within a certain range. The data of water
+samples which have larger chemical samples may not have been collected as the algae may have died or
+decomposed given the higher quantities of chemicals present in the water.
+
+### QUESTION 4: Cross validation using algae.med dataset 
+  a) Randomly partition data into 5 equal sized chunks 
+```{r, indent=indent2}
+# specify we want a 5 fold cross validation 
+nfold = 5 
+
+# dividing all training observations into 5 intervals
+set.seed(72)
+folds = cut(1:nrow(algae.med), breaks = nfold, labels = FALSE) %>% sample()
+folds
+```
+
+  b) perform 5-fold cross-validation with training error and validation errors of each chunck determined from 4a. 
+```{r, indent=indent2}
+# given function 
+do.chunk <- function(chunkid, chunkdef, dat){ # Function arguments
+  train = (chunkdef!=chunkid) # Get training index
+
+  Xtr = dat[train,1:11] # Get training set by the above index
+  Ytr = dat[train,12] # Get true response values in training set
+
+  Xvl = dat[!train, 1:11] # Get validation set
+  Yvl = dat[!train, 12] # Get true response values in validation set
+  
+  lm.a1 <- lm(a1~., data = dat[train, 1:12])
+  predYtr = predict(lm.a1)# Predict training values
+  predYvl = predict(lm.a1,Xvl)# Predict validation labels
+  
+  data.frame(fold = chunkid, # k folds
+             train.error = mean((predYtr - Ytr$a1)^2), # compute and store training error 
+             val.error = mean((predYvl - Yvl$a1)^2)) # compute and store test error
+}
+
+# set error.folds to save validation errors in future
+error.folds = NULL
+
+# give a possible number of nearest neighbors to be considered
+allK = 1:50
+
+# set seed since do.chunk() contains a random component induced by knn()
+set.seed(999)
+
+# Apply do.chunk() function to each fold
+tmp = ldply(1:nfold, do.chunk,chunkdef=folds, dat=algae.med)
+error.folds = rbind(error.folds, tmp)
+error.folds
+```
+
+### QUESTION 5: Test error on additional data 
+```{r, indent=indent2}
+algae.Test <- read_table2('algaeTest.txt', col_names = c('season','size','speed','mxPH', 'mn02','Cl','NO3','NH4','oP04','PO4','Chla','a1'), na=c('XXXXXXX'))
+
+# Build the model & predict 
+set.seed(6)
+model.a1 <- lm(a1 ~., data = algae.med[,1:12])
+predictions <- model.a1 %>% predict(algae.Test[,1:12])
+
+#value of true test error
+true.error = mean((predictions -  algae.Test$a1)^2)
+true.error
+```
+Yes, based on the cross validation estimated test error from part 4 the highest test error was 545.1 while lowest is 213.9. Hence, we would expect when we use the full data set for training, the test error would be in the lower range of the test error. The "true" test error value of 250.2 fits with what we expected. 
+
+### QUESTION 6: Cross Validation(CV) for Model Selection
+  a) plot wages as a function of age using ggplot 
+```{r, indent=indent2}
+head(Wage)
+ggplot(data = Wage, aes(x=age, y=wage)) + geom_point() + 
+  geom_smooth(method="lm", formula = y~poly(x,10), se = FALSE)
+```
+The general pattern of wages as a function of age is an inverted parabola. Yes, it matches our expectations because individuals would usually make more in their late 30s to around 60 years old as they gain more experience and expertise over time. They would earn less when they are younger due to the lack of experience and expertise and they would earn less when they are older due to the lack productivity, working for less hours, or retirement. 
+
+  b)
+  i. fit a linear regression to predict wages as a function of $age^p$ where p=0,1,...,10. 
+```{r, indent=indent2}
+age = Wage$age
+wage = Wage$wage
+# using lm to find linear regression
+fitreg <-function(p){
+  if (p==0){
+    lm.wage<-lm(wage~1,data=Wage)}
+  else{
+    lm.wage<- lm(wage~poly(age,p), data = Wage)}
+}
+
+print(fitreg(10))
+```
+
+  ii. 
+```{r, indent=indent2}
+# specify we want a 5 fold cross validation 
+nfold = 5 
+# dividing all training observations into 5 intervals
+set.seed(72)
+folds = cut(1:nrow(Wage), breaks = nfold, labels = FALSE) %>% sample()
+age = Wage$age
+wage = Wage$wage
+do.chunk <- function(chunkid, chunkdef, dat, p){ # function argument
+  train = (chunkdef != chunkid)
+  Xtr = dat[train, ]$age # get training set
+  Ytr = dat[train, ]$wage # get true response values in trainig set
+  Xvl = dat[!train, ]$age # get validation set
+  Yvl = dat[!train, ]$wage # get true response values in validation set
+if (p == 0){
+  lm.wage <- lm(wage~1, data= dat[train,]) 
+}else{
+  lm.wage <- lm(wage~poly(age,p), data= dat[train,])
+}
+predYtr = predict(lm.wage) # predict training values
+predYvl = predict(lm.wage,dat[!train,]) # predict validation values
+data.frame(fold = chunkid,
+train.error = mean((predYtr - Ytr)^2), # compute and store training error
+val.error = mean((predYvl - Yvl)^2),d) # compute and store test error
+}
+
+error.folds = NULL
+for (d in 0:10){
+tmp = ldply(1:nfold, do.chunk, chunkdef=folds, dat=Wage, d)
+error.folds = rbind(error.folds, tmp)
+}
+# printing out the test error and training error 
+error.folds 
+```
+
+  c) Plotting both the test error and training error for each of the models
+```{r, indent=indent2}
+# mean for all chunks 
+final.error1 <- select(error.folds,-fold) %>% group_by(d)%>% summarise_each(funs(mean),train.error, val.error)
+final.error1
+train1 = final.error1$train.error
+val1 = final.error1$val.error
+#plotting the values 
+ggplot() + geom_line(aes(x=d,y=train1,colour = 
+                      "blue"), data =final.error1)+ geom_line(aes(x=abs(d),y=val1, colour = 
+                      "orange"), data =final.error1) + labs(title = "Training and Testing Errors of wages as a Polynomial Function of Age ", x= "Polynomial", y= "MSE")  + 
+    scale_color_discrete(labels = c("Testing", "Training")) + scale_x_continuous(breaks=c(0:10))
+
+```
+As p increases, the training error decreases sharply until the model with polynomial 2 and decreases at a much slower rate as the value of p increases. Similar to the training error, the test errors decreases sharply as p increases until polynomial model 2 and decreases at a much lower rate as p continues to increase. The values for training and test error are close in the beginning until model with polynomial 2 and as  p increases, the value of test error is lower in comparison to training error. Based on the results, we would select the model with polynomial 2 as it is the point where the sharp decrease for testing and training error subsides. Although this is not the model with the lowest testing error, the testing error values are similar hence we would choose a simpler model which is model with polynomial 2 rather than a complex model with regression model 10. 
